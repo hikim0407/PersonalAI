@@ -1,0 +1,17 @@
+# --- Node / Next.js build outputs ---
+.node_repl_history
+.next/
+out/
+dist/
+build/
+.npm/
+.vercel/
+.turbo/
+
+# --- Dependencies ---
+node_modules/
+
+# --- Env (keep examples) ---
+.env
+.env.*
+!.env.example
