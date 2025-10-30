@@ -56,7 +56,7 @@ export async function POST(req) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     // 먼저 안정 모델로 통신 확인 (필요 시 "gemini-2.5-flash"로 교체)
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       generationConfig: { temperature: 0.2 },
     });
 
