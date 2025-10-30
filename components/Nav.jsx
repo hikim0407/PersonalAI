@@ -38,6 +38,7 @@ export default function Nav() {
         <div style={{ display: "flex", gap: 8 }}>
           <Link href="/chat" style={linkStyle("/chat")}>챗봇</Link>
           <Link href="/summarize" style={linkStyle("/summarize")}>문서 요약</Link>
+          <Link href="/meeting-notes" style={linkStyle("/meeting-notes")}>회의록 정리</Link>
           <a
             href="https://ai.google.com/gemini"
             target="_blank"

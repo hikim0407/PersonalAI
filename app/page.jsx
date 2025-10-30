@@ -21,6 +21,13 @@ export default function Page() {
           <h2 style={{ fontSize: 20, margin: "0 0 6px" }}>문서 요약으로 가기 →</h2>
           <p className={styles.pMuted}>브라우저에서 PDF 텍스트 추출 후 서버에서 요약.</p>
         </Link>
+
+        <Link href="/meeting-notes" className={styles.card}>
+          <h2 style={{ fontSize: 20, margin: "0 0 6px" }}>회의록 정리 AI 사용하기 →</h2>
+          <p className={styles.pMuted}>
+            회의/상담 기록을 붙여넣으면 핵심 의사결정과 후속 액션을 구조화해 드려요.
+          </p>
+        </Link>
       </section>
     </main>
   );
