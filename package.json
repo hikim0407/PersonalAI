@@ -14,13 +14,15 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "ffmpeg-static": "^5.2.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "luxon": "^3.7.2",
     "next": "^15.4.6",
     "pdf-parse": "^1.1.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "fluent-ffmpeg": "^2.1.2",
-    "ytdl-core": "^4.11.5",
-    "win-ca": "^3.5.1"
+    "win-ca": "^3.5.1",
+    "yahoo-finance2": "^3.10.0",
+    "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
     "@types/node": "24.2.1",

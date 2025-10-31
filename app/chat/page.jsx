@@ -44,16 +44,6 @@ function Bubble({ role, text }) {
 const DEFAULT_SYSTEM =
   "당신은 한국어로 응답하는 개인 비서입니다. 간결하고 실용적으로 답하세요.";
 
-/** ✅ few-shot 예시 (user → model 순서) */
-const EXAMPLES = [
-  { role: "user", text: "참새" },
-  { role: "model", text: "짹짹" },
-  { role: "user", text: "개" },
-  { role: "model", text: "멍멍" },
-  { role: "user", text: "오리" },
-  { role: "model", text: "꽥꽥" },
-];
-
 export default function Home() {
   const [log, setLog] = useState([]);
   const [q, setQ] = useState("");
@@ -107,7 +97,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          history: [...EXAMPLES, ...log],     // 예시 + 기존 대화
+          //history: [...EXAMPLES, ...log],     // 예시 + 기존 대화
+          history: [...log],     // 예시 + 기존 대화
           system: systemPrompt?.trim() || undefined, // textarea 값 사용
         }),
       });
