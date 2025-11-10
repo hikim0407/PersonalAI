@@ -45,12 +45,15 @@ const DEFAULT_SYSTEM =
   "당신은 한국어로 응답하는 개인 비서입니다. 간결하고 실용적으로 답하세요.";
 
 export default function Home() {
-  const [log, setLog] = useState([]);
+  const [log, setLog] = useState([]); // [{role:'user'|'model', text:string}]
   const [q, setQ] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM);
+  const [loading, setLoading] = useState(false);
+  const [debug, setDebug] = useState([]); // 도구 이벤트 로그(선택)
 
   const btnRef = useRef(null);
   const logRef = useRef(null);
+  const streamBufRef = useRef(""); // 현재 스트리밍 누적 버퍼
 
   // 로컬 저장/복구
   useEffect(() => {
@@ -78,17 +81,29 @@ export default function Home() {
   useEffect(() => {
     const el = logRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [log]);
 
+  /** ✅ 서버로 보낼 history: 텍스트만 */
+  function buildApiHistory(list) {
+    return list.map((m) => ({
+      role: m.role === "assistant" ? "model" : m.role,
+      text: m.text ?? "",
+    }));
+  }
+
+  /** ✅ 스트리밍 ask */
   async function ask() {
     const message = (q || "").trim();
     if (!message) return;
 
     setQ("");
-    setLog((L) => [...L, { role: "user", text: message }]);
+    setLoading(true);
+    streamBufRef.current = "";
+
+    // 1) 사용자 말풍선 + 어시스턴트 placeholder 추가
+    setLog((L) => [...L, { role: "user", text: message }, { role: "model", text: "" }]);
     if (btnRef.current) btnRef.current.disabled = true;
 
     try {
@@ -96,23 +111,80 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          stream: true, // <= 스트리밍 모드
           message,
-          //history: [...EXAMPLES, ...log],     // 예시 + 기존 대화
-          history: [...log],     // 예시 + 기존 대화
-          system: systemPrompt?.trim() || undefined, // textarea 값 사용
+          history: buildApiHistory(log), // 텍스트만 전달
+          system: systemPrompt?.trim() || undefined,
         }),
       });
 
-      const data = await res.json();
-      const answer = data?.answer ?? "(응답 없음)";
-      setLog((L) => [...L, { role: "model", text: answer }]);
+      if (!res.ok || !res.body) {
+        throw new Error("스트림 응답이 유효하지 않습니다.");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let chunkBuf = "";
+
+      // SSE 청크 처리
+      const flush = () => {
+        let idx;
+        while ((idx = chunkBuf.indexOf("\n\n")) !== -1) {
+          const raw = chunkBuf.slice(0, idx).trim();
+          chunkBuf = chunkBuf.slice(idx + 2);
+
+          const lines = raw.split("\n");
+          const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim() || "message";
+          const dataLine = lines.find((l) => l.startsWith("data:"));
+          const data = dataLine ? JSON.parse(dataLine.slice(5)) : null;
+
+          if (event === "token") {
+            // 토큰 누적 → 마지막 assistant 말풍선 업데이트
+            const t = data?.text || "";
+            if (!t) return;
+            streamBufRef.current += t;
+            setLog((L) => {
+              const arr = [...L];
+              arr[arr.length - 1] = { role: "model", text: streamBufRef.current };
+              return arr;
+            });
+          } else if (event === "tool_call" || event === "tool_result" || event === "phase") {
+            // 선택: 툴 이벤트 패널에 출력
+            setDebug((D) => [...D, { event, data }]);
+          } else if (event === "done") {
+            setLoading(false);
+          } else if (event === "error") {
+            setLoading(false);
+            setLog((L) => {
+              const arr = [...L];
+              arr[arr.length - 1] = {
+                role: "model",
+                text:
+                  (arr[arr.length - 1]?.text || "") +
+                  `\n\n(에러) ${data?.message || "알 수 없는 오류"}`,
+              };
+              return arr;
+            });
+          }
+        }
+      };
+
+      // 스트림 루프
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunkBuf += decoder.decode(value, { stream: true });
+        flush();
+      }
     } catch (e) {
       console.error(e);
-      setLog((L) => [
-        ...L,
-        { role: "model", text: "에러가 발생했어요 😥" },
-      ]);
+      setLog((L) => {
+        const arr = [...L];
+        arr[arr.length - 1] = { role: "model", text: "에러가 발생했어요 😥" };
+        return arr;
+      });
     } finally {
+      setLoading(false);
       if (btnRef.current) btnRef.current.disabled = false;
     }
   }
@@ -138,7 +210,7 @@ export default function Home() {
         나만의 초간단 비서 🤖
       </h1>
 
-      {/* 시스템 프롬프트 입력 textarea (프리셋 select 제거) */}
+      {/* 시스템 프롬프트 입력 */}
       <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
         <label style={{ fontSize: 14 }}>시스템 프롬프트</label>
         <textarea
@@ -156,7 +228,7 @@ export default function Home() {
         />
       </div>
 
-      {/* 대화 영역 (고정 높이 + 스크롤) */}
+      {/* 대화 영역 */}
       <div
         ref={logRef}
         style={{
@@ -177,6 +249,7 @@ export default function Home() {
         {log.map((t, i) => (
           <Bubble key={i} role={t.role} text={t.text} />
         ))}
+        {loading && <div style={{ fontSize: 12, color: "#64748b" }}>생성 중…</div>}
       </div>
 
       {/* 입력/버튼 */}
@@ -221,6 +294,18 @@ export default function Home() {
           기록 지우기
         </button>
       </div>
+
+      {/* 선택: 도구 이벤트 패널 */}
+      {debug.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: "pointer", fontSize: 13, color: "#64748b" }}>
+            도구 이벤트
+          </summary>
+          <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", background: "#f8fafc", padding: 8, borderRadius: 6, border: "1px solid #e5e7eb" }}>
+            {JSON.stringify(debug, null, 2)}
+          </pre>
+        </details>
+      )}
     </main>
   );
 }
