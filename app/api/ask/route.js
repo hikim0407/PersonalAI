@@ -3,8 +3,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { localFns } from "@/lib/agent/functions";   // 네가 쓰는 경로에 맞춰 수정
-import { tools }   from "@/lib/agent/tools";        // 네가 쓰는 경로에 맞춰 수정
+import { localFns } from "@/lib/agent/functions";
+import { tools }   from "@/lib/agent/tools";
 
 const MODEL = "gemini-2.5-flash";
 
