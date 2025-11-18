@@ -12,7 +12,7 @@ export default function VisionPage() {
   const [urlLoading, setUrlLoading] = useState(false);
   const urlBtnRef = useRef(null);
 
-  // 2) 업로드 이미지용 상태
+  // 2) 단일 업로드 이미지용 상태
   const [filePrompt, setFilePrompt] = useState(
     "이 사진의 내용을 한국어로 자세히 설명해줘."
   );
@@ -21,6 +21,16 @@ export default function VisionPage() {
   const [fileAnswer, setFileAnswer] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
   const fileBtnRef = useRef(null);
+
+  // 3) 여러 이미지 비교용 상태
+  const [multiPrompt, setMultiPrompt] = useState(
+    "이 여러 이미지의 공통점과 차이점을 설명해줘. 시간 순서나 상황 변화를 추론할 수 있다면 함께 말해줘."
+  );
+  const [multiPreviews, setMultiPreviews] = useState([]);   // data URL 배열
+  const [multiBase64s, setMultiBase64s] = useState([]);     // data URL 배열 (API로 보냄)
+  const [multiAnswer, setMultiAnswer] = useState("");
+  const [multiLoading, setMultiLoading] = useState(false);
+  const multiBtnRef = useRef(null);
 
   /** 1) 인터넷 이미지 분석 */
   async function analyzeByUrl() {
@@ -57,7 +67,7 @@ export default function VisionPage() {
     }
   }
 
-  /** 2) 파일 선택 시 base64로 읽어오기 */
+  /** 2) 단일 파일 선택 시 base64로 읽어오기 */
   function handleFileChange(e) {
     const file = e.target.files?.[0];
     if (!file) {
@@ -120,6 +130,79 @@ export default function VisionPage() {
     }
   }
 
+  /** 3) 여러 파일 선택 시 base64로 읽어오기 */
+  async function handleMultiFilesChange(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) {
+      setMultiPreviews([]);
+      setMultiBase64s([]);
+      return;
+    }
+
+    const readFileAsDataUrl = (file) =>
+      new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const result = evt.target?.result;
+          if (typeof result === "string") resolve(result);
+          else resolve("");
+        };
+        reader.readAsDataURL(file);
+      });
+
+    const results = await Promise.all(files.map(readFileAsDataUrl));
+    const valid = results.filter(Boolean);
+
+    setMultiPreviews(valid);
+    setMultiBase64s(valid);
+  }
+
+  /** 3) 여러 이미지 비교 분석 */
+  async function analyzeMulti() {
+    const q = multiPrompt.trim();
+    if (!multiBase64s.length) {
+      alert("비교할 이미지를 2장 이상 선택해 주세요.");
+      return;
+    }
+    if (!q) {
+      alert("프롬프트를 입력해 주세요.");
+      return;
+    }
+
+    setMultiLoading(true);
+    setMultiAnswer("");
+    if (multiBtnRef.current) multiBtnRef.current.disabled = true;
+
+    try {
+      const imagesPayload = multiBase64s.map((dataUrl) => ({
+        imageBase64: dataUrl,
+        mimeType: guessMimeTypeFromDataUrl(dataUrl),
+      }));
+
+      const res = await fetch(`/api/vision?t=${Date.now()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: q,
+          images: imagesPayload,
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.answer) {
+        setMultiAnswer(data.answer);
+      } else {
+        setMultiAnswer("응답이 비어 있어요. 다시 시도해 보세요.");
+      }
+    } catch (e) {
+      console.error(e);
+      setMultiAnswer("에러가 발생했어요 😥 콘솔을 확인해 보세요.");
+    } finally {
+      setMultiLoading(false);
+      if (multiBtnRef.current) multiBtnRef.current.disabled = false;
+    }
+  }
+
   // data URL에서 mimeType 추출 (예: "data:image/png;base64,...")
   function guessMimeTypeFromDataUrl(dataUrl) {
     if (!dataUrl.startsWith("data:")) return "image/png";
@@ -127,6 +210,8 @@ export default function VisionPage() {
     if (semi === -1) return "image/png";
     return dataUrl.substring(5, semi) || "image/png";
   }
+
+  const hasMulti = multiPreviews && multiPreviews.length > 0;
 
   return (
     <main
@@ -138,10 +223,10 @@ export default function VisionPage() {
       }}
     >
       <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>
-        이미지 분석하기 🖼️
+        6장 - GPT 비전(실습용 Gemini)으로 이미지 분석하기 🖼️
       </h1>
       <p style={{ fontSize: 14, color: "#555", marginBottom: 24 }}>
-        1) 인터넷에 있는 이미지 URL로 설명 요청하기, 2) 내 컴퓨터에 있는 이미지로 설명 요청하기.
+        1) 인터넷 이미지, 2) 내 컴퓨터의 단일 이미지, 3) 여러 이미지를 비교 분석하는 실습.
       </p>
 
       {/* 섹션 1: 인터넷 이미지 URL */}
@@ -153,7 +238,7 @@ export default function VisionPage() {
         <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
           <label style={{ fontSize: 14 }}>이미지 URL</label>
           <input
-            placeholder="https://unsplash.com/"
+            placeholder="https://예시.com/sample.jpg"
             value={imageUrl}
             onChange={(e) => setImageUrl(e.target.value)}
             style={{
@@ -257,7 +342,7 @@ export default function VisionPage() {
       <hr style={{ marginBottom: 32 }} />
 
       {/* 섹션 2: 내 이미지 업로드 */}
-      <section>
+      <section style={{ marginBottom: 40 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>
           2. 내 컴퓨터에 있는 이미지로 설명 요청하기
         </h2>
@@ -353,6 +438,122 @@ export default function VisionPage() {
           }}
         >
           {fileAnswer || "여기에 업로드한 이미지 분석 결과가 표시됩니다."}
+        </div>
+      </section>
+
+      <hr style={{ marginBottom: 32 }} />
+
+      {/* 섹션 3: 여러 이미지 비교 */}
+      <section>
+        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>
+          3. 여러 이미지를 비교 분석하기
+        </h2>
+        <p style={{ fontSize: 13, color: "#666", marginBottom: 10 }}>
+          예: 전/후 사진, 시간대가 다른 풍경, 여러 제품 사진 등을 올려두고 공통점/차이점을 분석해 보세요.
+        </p>
+
+        <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+          <label style={{ fontSize: 14 }}>비교할 이미지 파일들 선택 (2장 이상)</label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleMultiFilesChange}
+          />
+        </div>
+
+        <div style={{ display: "grid", gap: 6, marginBottom: 16 }}>
+          <label style={{ fontSize: 14 }}>프롬프트</label>
+          <textarea
+            value={multiPrompt}
+            onChange={(e) => setMultiPrompt(e.target.value)}
+            rows={3}
+            style={{
+              width: "100%",
+              padding: 10,
+              border: "1px solid #ccc",
+              borderRadius: 6,
+              fontSize: 14,
+            }}
+          />
+        </div>
+
+        {/* 미리보기 그리드 */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+            gap: 10,
+            marginBottom: 16,
+            border: "1px solid #eee",
+            borderRadius: 8,
+            padding: 8,
+            background: "#fafafa",
+            minHeight: 160,
+          }}
+        >
+          {hasMulti ? (
+            multiPreviews.map((src, idx) => (
+              <div
+                key={idx}
+                style={{
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 4,
+                }}
+              >
+                <img
+                  src={src}
+                  alt={`multi-${idx}`}
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: 140,
+                    objectFit: "contain",
+                  }}
+                />
+              </div>
+            ))
+          ) : (
+            <span style={{ fontSize: 13, color: "#999" }}>
+              비교할 이미지 파일들을 2장 이상 선택하면 이곳에 썸네일이 표시됩니다.
+            </span>
+          )}
+        </div>
+
+        <button
+          ref={multiBtnRef}
+          onClick={analyzeMulti}
+          style={{
+            padding: "10px 16px",
+            fontSize: 15,
+            borderRadius: 8,
+            border: "1px solid #ccc",
+            background: multiLoading ? "#e5e7eb" : "#f9fafb",
+            cursor: multiLoading ? "default" : "pointer",
+            minWidth: 160,
+            marginBottom: 12,
+          }}
+        >
+          {multiLoading ? "여러 이미지 분석 중..." : "여러 이미지 비교 분석"}
+        </button>
+
+        <div
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: 8,
+            padding: 12,
+            minHeight: 100,
+            background: "#fff",
+            whiteSpace: "pre-wrap",
+            fontSize: 14,
+          }}
+        >
+          {multiAnswer || "여기에 여러 이미지를 비교한 분석 결과가 표시됩니다."}
         </div>
       </section>
     </main>
