@@ -41,8 +41,7 @@ function Bubble({ role, text }) {
 }
 
 /** ✅ 기본 시스템 프롬프트 */
-const DEFAULT_SYSTEM =
-  "당신은 한국어로 응답하는 개인 비서입니다. 간결하고 실용적으로 답하세요.";
+const DEFAULT_SYSTEM = "당신은 한국어로 응답하는 개인 비서입니다.";
 
 export default function Home() {
   const [log, setLog] = useState([]); // [{role:'user'|'model', text:string}]
@@ -50,6 +49,7 @@ export default function Home() {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM);
   const [loading, setLoading] = useState(false);
   const [debug, setDebug] = useState([]); // 도구 이벤트 로그(선택)
+  const [streamMode, setStreamMode] = useState(true); // ✅ 스트리밍 on/off
 
   const btnRef = useRef(null);
   const logRef = useRef(null);
@@ -60,8 +60,13 @@ export default function Home() {
     try {
       const savedLog = localStorage.getItem("mini-assistant-log");
       const savedSystem = localStorage.getItem("persona-system");
+      const savedStream = localStorage.getItem("mini-assistant-stream");
+
       if (savedLog) setLog(JSON.parse(savedLog));
       if (savedSystem) setSystemPrompt(savedSystem);
+      if (savedStream != null) {
+        setStreamMode(savedStream === "1");
+      }
     } catch {}
   }, []);
 
@@ -76,6 +81,12 @@ export default function Home() {
       localStorage.setItem("persona-system", systemPrompt);
     } catch {}
   }, [systemPrompt]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("mini-assistant-stream", streamMode ? "1" : "0");
+    } catch {}
+  }, [streamMode]);
 
   // 새 메시지 때 자동 스크롤(바닥 근처면 맨 아래로)
   useEffect(() => {
@@ -93,17 +104,30 @@ export default function Home() {
     }));
   }
 
-  /** ✅ 스트리밍 ask */
+  /** ✅ ask: stream 모드 on/off 지원 */
   async function ask() {
     const message = (q || "").trim();
     if (!message) return;
+
+    const useStream = streamMode;
 
     setQ("");
     setLoading(true);
     streamBufRef.current = "";
 
-    // 1) 사용자 말풍선 + 어시스턴트 placeholder 추가
-    setLog((L) => [...L, { role: "user", text: message }, { role: "model", text: "" }]);
+    // 서버에 보낼 history: 기존 로그 + 현재 user 메시지
+    const historyForApi = [
+      ...buildApiHistory(log),
+      { role: "user", text: message },
+    ];
+
+    // 1) UI에 먼저 user 메시지 반영
+    setLog((L) =>
+      useStream
+        ? [...L, { role: "user", text: message }, { role: "model", text: "" }] // 스트리밍: placeholder 추가
+        : [...L, { role: "user", text: message }]
+    );
+
     if (btnRef.current) btnRef.current.disabled = true;
 
     try {
@@ -111,17 +135,26 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          stream: true, // <= 스트리밍 모드
+          stream: useStream, // ✅ 서버에 스트림 여부 전달(서버가 지원한다면)
           message,
-          history: buildApiHistory(log), // 텍스트만 전달
+          history: historyForApi,
           system: systemPrompt?.trim() || undefined,
         }),
       });
 
-      if (!res.ok || !res.body) {
-        throw new Error("스트림 응답이 유효하지 않습니다.");
+      if (!res.ok) {
+        throw new Error("응답이 유효하지 않습니다.");
       }
 
+      // ✅ 스트림 OFF: 한 번에 JSON 받기
+      if (!useStream || !res.body || res.headers.get("content-type")?.includes("application/json")) {
+        const data = await res.json();
+        const answer = data?.answer ?? "(응답 없음)";
+        setLog((L) => [...L, { role: "model", text: answer }]);
+        return;
+      }
+
+      // ✅ 스트림 ON: SSE 처리
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let chunkBuf = "";
@@ -133,8 +166,12 @@ export default function Home() {
           const raw = chunkBuf.slice(0, idx).trim();
           chunkBuf = chunkBuf.slice(idx + 2);
 
+          if (!raw) continue;
+
           const lines = raw.split("\n");
-          const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim() || "message";
+          const event =
+            lines.find((l) => l.startsWith("event:"))?.slice(6).trim() ||
+            "message";
           const dataLine = lines.find((l) => l.startsWith("data:"));
           const data = dataLine ? JSON.parse(dataLine.slice(5)) : null;
 
@@ -145,10 +182,17 @@ export default function Home() {
             streamBufRef.current += t;
             setLog((L) => {
               const arr = [...L];
-              arr[arr.length - 1] = { role: "model", text: streamBufRef.current };
+              arr[arr.length - 1] = {
+                role: "model",
+                text: streamBufRef.current,
+              };
               return arr;
             });
-          } else if (event === "tool_call" || event === "tool_result" || event === "phase") {
+          } else if (
+            event === "tool_call" ||
+            event === "tool_result" ||
+            event === "phase"
+          ) {
             // 선택: 툴 이벤트 패널에 출력
             setDebug((D) => [...D, { event, data }]);
           } else if (event === "done") {
@@ -180,8 +224,13 @@ export default function Home() {
       console.error(e);
       setLog((L) => {
         const arr = [...L];
-        arr[arr.length - 1] = { role: "model", text: "에러가 발생했어요 😥" };
-        return arr;
+        // 스트림 모드일 때 placeholder가 이미 있으므로 거기 덮어쓰기,
+        // 아니면 새 assistant 말풍선 추가
+        if (useStream && arr.length > 0 && arr[arr.length - 1].role === "model") {
+          arr[arr.length - 1] = { role: "model", text: "에러가 발생했어요 😥" };
+          return arr;
+        }
+        return [...arr, { role: "model", text: "에러가 발생했어요 😥" }];
       });
     } finally {
       setLoading(false);
@@ -211,7 +260,7 @@ export default function Home() {
       </h1>
 
       {/* 시스템 프롬프트 입력 */}
-      <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+      <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
         <label style={{ fontSize: 14 }}>시스템 프롬프트</label>
         <textarea
           placeholder={DEFAULT_SYSTEM}
@@ -226,6 +275,34 @@ export default function Home() {
             fontSize: 14,
           }}
         />
+      </div>
+
+      {/* ✅ 스트리밍 토글 */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 12,
+          fontSize: 13,
+          color: "#64748b",
+        }}
+      >
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={streamMode}
+            onChange={(e) => setStreamMode(e.target.checked)}
+          />
+          <span>스트리밍 응답 사용</span>
+        </label>
       </div>
 
       {/* 대화 영역 */}
@@ -249,7 +326,9 @@ export default function Home() {
         {log.map((t, i) => (
           <Bubble key={i} role={t.role} text={t.text} />
         ))}
-        {loading && <div style={{ fontSize: 12, color: "#64748b" }}>생성 중…</div>}
+        {loading && (
+          <div style={{ fontSize: 12, color: "#64748b" }}>생성 중…</div>
+        )}
       </div>
 
       {/* 입력/버튼 */}
@@ -298,10 +377,21 @@ export default function Home() {
       {/* 선택: 도구 이벤트 패널 */}
       {debug.length > 0 && (
         <details style={{ marginTop: 12 }}>
-          <summary style={{ cursor: "pointer", fontSize: 13, color: "#64748b" }}>
+          <summary
+            style={{ cursor: "pointer", fontSize: 13, color: "#64748b" }}
+          >
             도구 이벤트
           </summary>
-          <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", background: "#f8fafc", padding: 8, borderRadius: 6, border: "1px solid #e5e7eb" }}>
+          <pre
+            style={{
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+              background: "#f8fafc",
+              padding: 8,
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+            }}
+          >
             {JSON.stringify(debug, null, 2)}
           </pre>
         </details>
