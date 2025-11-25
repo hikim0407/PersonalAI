@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "gemini:basic": "node scripts/08-1-basic-gemini.mjs",
+    "gemini:multi": "node scripts/08-1-multiturn-gemini.mjs",
+    "gemini:lcel": "node scripts/08-2-lcel-gemini.mjs",
+    "gemini:tools": "node scripts/08-3-agent-gemini.mjs"
   },
   "keywords": [],
   "author": "",
@@ -13,8 +17,12 @@
   "description": "",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@langchain/core": "^1.1.0",
+    "@langchain/google-genai": "^2.0.0",
+    "dotenv": "^17.2.3",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.2",
+    "langchain": "^1.1.1",
     "luxon": "^3.7.2",
     "next": "^15.4.6",
     "pdf-parse": "^1.1.1",
@@ -22,7 +30,8 @@
     "react-dom": "^19.1.1",
     "win-ca": "^3.5.1",
     "yahoo-finance2": "^3.10.0",
-    "ytdl-core": "^4.11.5"
+    "ytdl-core": "^4.11.5",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "24.2.1",
